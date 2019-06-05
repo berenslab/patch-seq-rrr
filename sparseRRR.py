@@ -11,7 +11,7 @@ from glmnet import glmnet
 ###################################################
 # Elastic net reduced-rank regression
 
-def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100):
+def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0):
     # initialize with PLS direction
     _,_,v = np.linalg.svd(X.T @ Y, full_matrices=False)
     v = v[:rank,:].T
@@ -42,18 +42,18 @@ def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100):
         loss[iter] = np.sum((Y - X @ w @ v.T)**2)/np.sum(Y**2);        
         
         if iter > 0 and np.abs(loss[iter]-loss[iter-1]) < 1e-6:
-#             print('Converged in ' + str(iter) + ' iterations')
+            if verbose > 0:
+                print('Converged in {} iteration(s)'.format(iter))
             break
-#         if iter == max_iter-1:
-#             print('Did not converge.', loss)
+        if (iter == max_iter-1) and (verbose > 0):
+            print('Did not converge. Losses: ', loss)
     
     return (w, v)
 
 def relaxed_elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100):
     w,v = elastic_rrr(X, Y, rank=rank, lambdau=lambdau, alpha=alpha)
-    if np.sum(w[:,0]!=0)>1:
-        w[w[:,0]!=0,:],v = elastic_rrr(X[:,w[:,0]!=0], Y, rank=rank, 
-                                   lambdau=lambdau, alpha=alpha)
+    w[w[:,0]!=0,:],v = elastic_rrr(X[:,w[:,0]!=0], Y, rank=rank, 
+                                   lambdau=lambdau, alpha=0)
     return (w,v)
 
 
@@ -309,7 +309,8 @@ def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_r
         cr = np.nanmean(r2_relaxed, axis=(0,1))
         c = np.nanmean(r2, axis=(0,1))
         c1 = np.nanmean(corrs_relaxed, axis=(0,1))[:,:,0]
-        c2 = np.nanmean(corrs_relaxed, axis=(0,1))[:,:,1]
+        if corrs_relaxed.shape[4]>1:
+           c2 = np.nanmean(corrs_relaxed, axis=(0,1))[:,:,1]
 
     sns.set()
     plt.figure(figsize=(9,4))
@@ -325,7 +326,8 @@ def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_r
     plt.subplot(122)
     plt.plot(n, c1, '.-', linewidth=1)
     plt.gca().set_prop_cycle(None)
-    plt.plot(n, c2, '.--', linewidth=1)
+    if corrs_relaxed.shape[4]>1:
+        plt.plot(n, c2, '.--', linewidth=1)
     plt.xscale('log')
     plt.xlabel('Number of non-zero genes')
     plt.ylabel('Correlations')
