@@ -262,6 +262,10 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
                     if np.sum(vx[:,0]!=0) < rank:
                         nonzero[cvfold, rep, i, j] = np.nan
                         continue
+
+                    if np.any(np.std(Xtest @ vx, axis=0)==0):
+                        nonzero[cvfold, rep, i, j] = np.nan
+                        continue
                     
                     nonzero[cvfold, rep, i, j] = np.sum(vx[:,0]!=0)
                     r2[cvfold, rep, i, j] = 1 - np.sum((Ytest - Xtest @ vx @ vy.T)**2) / np.sum(Ytest**2)
@@ -270,6 +274,11 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
                         
                     # Relaxation
                     vx[vx[:,0]!=0,:],vy = elastic_rrr(Xtrain[:,vx[:,0]!=0], Ytrain, lambdau=a, alpha=0, rank=rank)
+
+                    if np.any(np.std(Xtest @ vx, axis=0)==0):
+                        nonzero[cvfold, rep, i, j] = np.nan
+                        continue
+
                     r2_relaxed[cvfold, rep, i, j] = 1 - np.sum((Ytest - Xtest @ vx @ vy.T)**2) / np.sum(Ytest**2)
                     for r in range(rank):
                         corrs_relaxed[cvfold, rep, i, j, r] = np.corrcoef(Xtest @ vx[:,r], Ytest @ vy[:,r], rowvar=False)[0,1]
