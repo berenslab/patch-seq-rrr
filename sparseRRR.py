@@ -68,9 +68,11 @@ def bibiplot(X, Y, w, v,
              figsize=(9,4), axes=None):
 
     if XdimsToShow is None:
-        XdimsToShow = np.where(w[:,0]!=0)[0]
+        XdimsToShow_1 = np.where(w[:,0]!=0)[0]
+        XdimsToShow_2 = np.where(w[:,1]!=0)[0] # Functionality added in case second component selects different features
     if YdimsToShow is None:
-        YdimsToShow = np.where(v[:,0]!=0)[0]
+        YdimsToShow_1 = np.where(v[:,0]!=0)[0]
+        YdimsToShow_2 = np.where(v[:,1]!=0)[0] # Functionality added in case second component selects different features
     
     # Project and standardize
     Zx = X @ w[:,:2]
@@ -103,12 +105,129 @@ def bibiplot(X, Y, w, v,
     if cellTypeLabels:
         plt.legend(bbox_to_anchor=(1.35, 1.0))
         
-    if XdimsToShow.size > 0:
+    if XdimsToShow_1.size > 0:
         scaleFactor = 2
+        L = np.corrcoef(np.concatenate((Zx[:,:2], X), axis=1), rowvar=False)[2:,:2]
+        for i in XdimsToShow_1:
+            plt.plot([0, scaleFactor*L[i,0]], [0, scaleFactor*L[i,1]], linewidth=1, color=[.4, .4, .4])
+            plt.text(scaleFactor*L[i,0]*1.2, scaleFactor*L[i,1]*1.2, XdimsNames[i], 
+                     ha='center', va='center', color=[.4, .4, .4], fontsize=10)
+        circ = plt.Circle((0,0), radius=scaleFactor, color=[.4, .4, .4], fill=False, linewidth=1)
+        plt.gca().add_patch(circ)
+        
+    if XdimsToShow_2.size > 0:
+        if XdimsToShow_2.size != XdimsToShow_1.size:
+            scaleFactor = 2
+            L = np.corrcoef(np.concatenate((Zx[:,:2], X), axis = 1), rowvar = False)[2:,:2]
+            for i in XdimsToShow_2:
+                plt.plot([0, scaleFactor*L[i,0]], [0, scaleFactor*L[i,1]], linewidth=1, color = [.5, .5, .5])
+                plt.text(scaleFactor*L[i,0]*1.2, scaleFactor*L[i,1]*1.2, XdimsNames[i],
+                         ha='center', va='center', color = 'b', fontsize = 10)
+        elif False in np.equal(XdimsToShow_1, XdimsToShow_2): # They are the same size but different genes selected 
+            scaleFactor = 2
+            L = np.corrcoef(np.concatenate((Zx[:,:2], X), axis = 1), rowvar = False)[2:,:2]
+            for i in XdimsToShow_2:
+                plt.plot([0, scaleFactor*L[i,0]], [0, scaleFactor*L[i,1]], linewidth=1, color = [.5, .5, .5])
+                plt.text(scaleFactor*L[i,0]*1.2, scaleFactor*L[i,1]*1.2, XdimsNames[i],
+                         ha='center', va='center', color = 'b', fontsize = 10)
+                
+    if not axes:
+        plt.subplot(122, aspect='equal')
+    else:
+        if not axes[1]:
+            return
+        plt.sca(axes[1])
+        
+    if cellTypes.size == 0:
+        plt.scatter(Zy[:,0], Zy[:,1])
+    else:
+        for u in np.unique(cellTypes):
+            plt.scatter(Zy[cellTypes==u,0], Zy[cellTypes==u,1], color=cellTypeColors[u])
+    plt.xlim([-xylim,xylim])
+    plt.ylim([-xylim,xylim])
+    plt.gca().set_xticklabels([])
+    plt.gca().set_yticklabels([])
+    plt.xlabel('Component 1')
+    plt.ylabel('Component 2')
+    if titles:
+        plt.title(titles[1])
+    plt.tight_layout()
+
+    if YdimsToShow_1.size > 0:
+        scaleFactor = 2
+        L = np.corrcoef(np.concatenate((Zy[:,:2], Y), axis=1), rowvar=False)[2:,:2]
+        for i in YdimsToShow_1:
+            plt.plot([0, scaleFactor*L[i,0]], [0, scaleFactor*L[i,1]], linewidth=1, color=[.4, .4, .4])
+            plt.text(scaleFactor*L[i,0]*1.2, scaleFactor*L[i,1]*1.2, YdimsNames[i], 
+                     ha='center', va='center', color=[.4, .4, .4], fontsize=10)
+        circ = plt.Circle((0,0), radius=scaleFactor, color=[.4, .4, .4], fill=False, linewidth=1)
+        plt.gca().add_patch(circ)
+        
+    if YdimsToShow_2.size > 0:
+        if YdimsToShow_2.size != YdimsToShow_1.size:
+            scaleFactor = 2
+            L = np.corrcoef(np.concatenate((Zy[:,:2], Y), axis = 1), rowvar = False)[2:,:2]
+            for i in YdimsToShow_2:
+                plt.plot([0, scaleFactor*L[i,0]], [0, scaleFactor*L[i,1]], linewidth=1, color = [.5, .5, .5])
+                plt.text(scaleFactor*L[i,0]*1.2, scaleFactor*L[i,1]*1.2, YdimsNames[i],
+                         ha='center', va='center', color = 'b', fontsize = 10)
+        elif False in np.equal(YdimsToShow_1, YdimsToShow_2): # They are the same size but different genes selected 
+            scaleFactor = 2
+            L = np.corrcoef(np.concatenate((Zy[:,:2], Y), axis = 1), rowvar = False)[2:,:2]
+            for i in YdimsToShow_2:
+                plt.plot([0, scaleFactor*L[i,0]], [0, scaleFactor*L[i,1]], linewidth=1, color = [.5, .5, .5])
+                plt.text(scaleFactor*L[i,0]*1.2, scaleFactor*L[i,1]*1.2, YdimsNames[i],
+                         ha='center', va='center', color = 'b', fontsize = 10)
+        
+        
+###################################################
+# Double biplot function, Yves' version
+def bibiplot_Yves(X, Y, w, v, 
+             YdimsNames=np.array([]), YdimsToShow=np.array([]),
+             XdimsNames=np.array([]), XdimsToShow=np.array([]), 
+             titles=[], xylim = 3,
+             cellTypes=np.array([]), cellTypeColors={}, cellTypeLabels={},
+             figsize=(9,4), scaleFactor = 2, corr = np.array([]), axes=None):
+    
+    # Project and standardize
+    Zx = X @ w[:,:2]
+    Zy = Y @ v[:,:2]
+    Zx = Zx / np.std(Zx, axis=0)
+    Zy = Zy / np.std(Zy, axis=0)
+    
+    if not axes:
+        plt.figure(figsize=figsize)
+        plt.subplot(121, aspect='equal')
+    else:
+        plt.sca(axes[0])
+    
+    if cellTypes.size == 0:
+        plt.scatter(Zx[:,0], Zx[:,1])
+    else:
+        for u in np.unique(cellTypes):
+            if not cellTypeLabels:
+                plt.scatter(Zx[cellTypes==u,0], Zx[cellTypes==u,1], color=cellTypeColors[u])
+            else:
+                plt.scatter(Zx[cellTypes==u,0], Zx[cellTypes==u,1], color=cellTypeColors[u], label=cellTypeLabels[u])
+    plt.xlim([-xylim,xylim])
+    plt.ylim([-xylim,xylim])
+    plt.gca().set_xticklabels([])
+    plt.gca().set_yticklabels([])
+    plt.xlabel('Component 1')
+    plt.ylabel('Component 2')
+    if titles:
+        plt.title(titles[0])
+    if cellTypeLabels:
+        plt.legend(bbox_to_anchor=(0.85, 0.95))
+    if corr.size > 0:
+        plt.annotate(r'$\rho_1$ = {}'.format(corr[0]), xy=(xylim-1, -xylim + 1.2), xytext=(xylim-1, -xylim + 1.2))
+        plt.annotate(r'$\rho_2$ = {}'.format(corr[1]), xy=(xylim-1, -xylim + 0.7), xytext=(xylim-1, -xylim + 0.7))
+        
+    if XdimsToShow.size > 0:
         L = np.corrcoef(np.concatenate((Zx[:,:2], X), axis=1), rowvar=False)[2:,:2]
         for i in XdimsToShow:
             plt.plot([0, scaleFactor*L[i,0]], [0, scaleFactor*L[i,1]], linewidth=1, color=[.4, .4, .4])
-            plt.text(scaleFactor*L[i,0]*1.2, scaleFactor*L[i,1]*1.2, XdimsNames[i], 
+            plt.text(scaleFactor*L[i,0]*1.6, scaleFactor*L[i,1]*1.6, XdimsNames[i], 
                      ha='center', va='center', color=[.4, .4, .4], fontsize=10)
         circ = plt.Circle((0,0), radius=scaleFactor, color=[.4, .4, .4], fill=False, linewidth=1)
         plt.gca().add_patch(circ)
@@ -136,15 +255,13 @@ def bibiplot(X, Y, w, v,
     plt.tight_layout()
 
     if YdimsToShow.size > 0:
-        scaleFactor = 2
         L = np.corrcoef(np.concatenate((Zy[:,:2], Y), axis=1), rowvar=False)[2:,:2]
         for i in YdimsToShow:
             plt.plot([0, scaleFactor*L[i,0]], [0, scaleFactor*L[i,1]], linewidth=1, color=[.4, .4, .4])
-            plt.text(scaleFactor*L[i,0]*1.2, scaleFactor*L[i,1]*1.2, YdimsNames[i], 
+            plt.text(scaleFactor*L[i,0]*1.3, scaleFactor*L[i,1]*1.3, YdimsNames[i], 
                      ha='center', va='center', color=[.4, .4, .4], fontsize=10)
         circ = plt.Circle((0,0), radius=scaleFactor, color=[.4, .4, .4], fill=False, linewidth=1)
         plt.gca().add_patch(circ)
-        
         
 ###################################################
 # Permutation procedures to estimate dimensionality
