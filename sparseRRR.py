@@ -35,8 +35,9 @@ def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0):
         A = Y.T @ X @ w
         a,c,b = np.linalg.svd(A, full_matrices = False)
         v = a @ b
-        flips = np.sign(np.sum(v, axis=0))
-        v = v * flips 
+        pos = np.argmax(np.abs(v), axis=0)
+        flips = np.sign(v[pos, range(v.shape[1])])
+        v = v * flips
         w = w * flips
         
         loss[iter] = np.sum((Y - X @ w @ v.T)**2)/np.sum(Y**2);        

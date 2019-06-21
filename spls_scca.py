@@ -33,7 +33,7 @@ def witten(X, Y=None, lx=0, ly=0, max_iter=100, verbose=0, tol=1e-6):
         if (iter == max_iter-1) and (verbose > 0):
             print('Did not converge. Losses: ', loss)
 
-    if np.sum(v) < 0:
+    if v[np.argmax(np.abs(v))] < 0:
         v = -v
         u = -u
 
@@ -157,7 +157,7 @@ def suo(X, Y, lx=0, ly=0, max_iter=100, verbose=0, tol=1e-6):
         if (iter == max_iter-1) and (verbose > 0):
             print('Did not converge. Losses: ', loss)
 
-    if np.sum(v) < 0:
+    if v[np.argmax(np.abs(v))] < 0:
         v = -v
         u = -u
 
