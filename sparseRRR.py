@@ -11,7 +11,8 @@ from glmnet import glmnet
 ###################################################
 # Elastic net reduced-rank regression
 
-def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0):
+def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0,
+                sparsity='row-wise'):
     # initialize with PLS direction
     _,_,v = np.linalg.svd(X.T @ Y, full_matrices=False)
     v = v[:rank,:].T
@@ -22,10 +23,16 @@ def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0):
         if rank == 1:
             w = glmnet(x = X.copy(), y = (Y @ v).copy(), alpha = alpha, lambdau = np.array([lambdau]), 
                        standardize = False, intr = False)['beta']
-        else:
-            w = glmnet(x = X.copy(), y = (Y @ v).copy(), alpha = alpha, lambdau = np.array([lambdau]), 
-                       family = "mgaussian", standardize = False, intr = False,
-                       standardize_resp = False)['beta']
+        else: 
+            if sparsity=='row-wise':
+                w = glmnet(x = X.copy(), y = (Y @ v).copy(), alpha = alpha, lambdau = np.array([lambdau]), 
+                           family = "mgaussian", standardize = False, intr = False,
+                           standardize_resp = False)['beta']
+            else:
+                w = []
+                for i in range(rank):
+                    w.append(glmnet(x = X.copy(), y = (Y @ v[:,i]).copy(), alpha = alpha, lambdau = np.array([lambdau]), 
+                             standardize = False, intr = False, standardize_resp = False)['beta'])
             w = np.concatenate(w, axis=1)
                 
         if np.all(w==0):
@@ -51,10 +58,11 @@ def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0):
     
     return (w, v)
 
-def relaxed_elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100):
-    w,v = elastic_rrr(X, Y, rank=rank, lambdau=lambdau, alpha=alpha)
-    w[w[:,0]!=0,:],v = elastic_rrr(X[:,w[:,0]!=0], Y, rank=rank, 
-                                   lambdau=lambdau, alpha=0)
+def relaxed_elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100,
+                        sparsity='row-wise'):
+    w,v = elastic_rrr(X, Y, rank=rank, lambdau=lambdau, alpha=alpha, sparsity=sparsity)
+    nz = np.sum(np.abs(w), axis=1) != 0    
+    w[nz,:],v = elastic_rrr(X[:,nz], Y, rank=rank, lambdau=lambdau, alpha=0, sparsity=sparsity)
     return (w,v)
 
 
@@ -69,9 +77,11 @@ def bibiplot(X, Y, w, v,
              figsize=(9,4), axes=None):
 
     if XdimsToShow is None:
-        XdimsToShow = np.where(w[:,0]!=0)[0]
+        nz = np.sum(np.abs(w), axis=1) != 0
+        XdimsToShow = np.where(nz)[0]
     if YdimsToShow is None:
-        YdimsToShow = np.where(v[:,0]!=0)[0]
+        nz = np.sum(np.abs(v), axis=1) != 0
+        YdimsToShow = np.where(nz)[0]
     
     # Project and standardize
     Zx = X @ w[:,:2]
@@ -219,7 +229,7 @@ def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(9,3)):
 ###################################################
 # Cross-validation for elastic net reduced-rank regression
 def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.01, .1, 1]), 
-                   reps=10, folds=10, rank=1, seed=42):
+                   reps=10, folds=10, rank=1, seed=42, sparsity='row-wise'):
     n = X.shape[0]
     r2 = np.zeros((folds, reps, len(lambdas), len(alphas)))
     r2_relaxed = np.zeros((folds, reps, len(lambdas), len(alphas)))
@@ -258,9 +268,10 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
             # loop over regularization parameters
             for i,a in enumerate(lambdas):    
                 for j,b in enumerate(alphas):
-                    vx,vy = elastic_rrr(Xtrain, Ytrain, lambdau=a, alpha=b, rank=rank)
+                    vx,vy = elastic_rrr(Xtrain, Ytrain, lambdau=a, alpha=b, rank=rank, sparsity=sparsity)
                     
-                    if np.sum(vx[:,0]!=0) < rank:
+                    nz = np.sum(np.abs(vx), axis=1) != 0
+                    if np.sum(nz) < rank:
                         nonzero[cvfold, rep, i, j] = np.nan
                         continue
 
@@ -268,13 +279,13 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
                         nonzero[cvfold, rep, i, j] = np.nan
                         continue
                     
-                    nonzero[cvfold, rep, i, j] = np.sum(vx[:,0]!=0)
+                    nonzero[cvfold, rep, i, j] = np.sum(nz)
                     r2[cvfold, rep, i, j] = 1 - np.sum((Ytest - Xtest @ vx @ vy.T)**2) / np.sum(Ytest**2)
                     for r in range(rank):
                         corrs[cvfold, rep, i, j, r] = np.corrcoef(Xtest @ vx[:,r], Ytest @ vy[:,r], rowvar=False)[0,1]
                         
                     # Relaxation
-                    vx[vx[:,0]!=0,:],vy = elastic_rrr(Xtrain[:,vx[:,0]!=0], Ytrain, lambdau=a, alpha=0, rank=rank)
+                    vx[nz,:],vy = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=a, alpha=0, rank=rank, sparsity=sparsity)
 
                     if np.any(np.std(Xtest @ vx, axis=0)==0):
                         nonzero[cvfold, rep, i, j] = np.nan
