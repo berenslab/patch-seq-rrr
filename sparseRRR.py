@@ -275,7 +275,7 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
                         nonzero[cvfold, rep, i, j] = np.nan
                         continue
 
-                    if np.any(np.std(Xtest @ vx, axis=0)==0):
+                    if np.allclose(np.std(Xtest @ vx, axis=0), 0):
                         nonzero[cvfold, rep, i, j] = np.nan
                         continue
                     
@@ -287,7 +287,7 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
                     # Relaxation
                     vx[nz,:],vy = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=a, alpha=0, rank=rank, sparsity=sparsity)
 
-                    if np.any(np.std(Xtest @ vx, axis=0)==0):
+                    if np.allclose(np.std(Xtest @ vx, axis=0), 0):
                         nonzero[cvfold, rep, i, j] = np.nan
                         continue
 
