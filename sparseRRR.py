@@ -331,7 +331,7 @@ def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_r
         c = np.nanmean(r2, axis=(0,1))
         c1 = np.nanmean(corrs_relaxed, axis=(0,1))[:,:,0]
         if corrs_relaxed.shape[4]>1:
-           c2 = np.nanmean(corrs_relaxed, axis=(0,1))[:,:,1]
+            c2 = np.nanmean(corrs_relaxed, axis=(0,1))
 
     sns.set()
     plt.figure(figsize=(9,4))
@@ -346,9 +346,10 @@ def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_r
 
     plt.subplot(122)
     plt.plot(n, c1, '.-', linewidth=1)
-    plt.gca().set_prop_cycle(None)
     if corrs_relaxed.shape[4]>1:
-        plt.plot(n, c2, '.--', linewidth=1)
+        for k in range(1, corrs_relaxed.shape[4]):
+            plt.gca().set_prop_cycle(None)            
+            plt.plot(n, c2[:,:,k], '.--', linewidth=1)
     plt.xscale('log')
     plt.xlabel('Number of non-zero genes')
     plt.ylabel('Correlations')
