@@ -1,7 +1,6 @@
 import numpy as np
 import time
 import warnings
-import seaborn as sns
 import pylab as plt
 
 import glmnet_python
@@ -13,6 +12,22 @@ from glmnet import glmnet
 
 def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0,
                 sparsity='row-wise'):
+
+    # in the pure ridge case, analytic solution is available:
+    if alpha == 0:
+         U,s,V = np.linalg.svd(X, full_matrices=False)
+         B = V.T @ np.diag(s/(s**2 + lambdau*X.shape[0])) @ U.T @ Y
+         U,s,V = np.linalg.svd(X@B, full_matrices=False)
+         w = B @ V.T[:,:rank]
+         v = V.T[:,:rank]
+
+         pos = np.argmax(np.abs(v), axis=0)
+         flips = np.sign(v[pos, range(v.shape[1])])
+         v = v * flips
+         w = w * flips
+
+         return (w,v)
+
     # initialize with PLS direction
     _,_,v = np.linalg.svd(X.T @ Y, full_matrices=False)
     v = v[:rank,:].T
@@ -60,11 +75,25 @@ def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0,
 
 def relaxed_elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100,
                         sparsity='row-wise'):
-    w,v = elastic_rrr(X, Y, rank=rank, lambdau=lambdau, alpha=alpha, sparsity=sparsity)
-    nz = np.sum(np.abs(w), axis=1) != 0    
-    w[nz,:],v = elastic_rrr(X[:,nz], Y, rank=rank, lambdau=lambdau, alpha=0, sparsity=sparsity)
-    return (w,v)
+    w,v = elastic_rrr(X, Y, rank=rank, lambdau=lambdau, alpha=alpha, 
+                      sparsity=sparsity, max_iter=max_iter)
 
+    if alpha==0:   # pure ridge: no need to re-fit
+        return (w,v)
+
+    nz = np.sum(np.abs(w), axis=1) != 0    
+    wr,vr = elastic_rrr(X[:,nz], Y, rank=rank, lambdau=lambdau, alpha=0,
+                        sparsity=sparsity, max_iter=max_iter)
+    if np.sum(nz)>=np.shape(w)[1]:
+        w[nz,:] = wr
+        v = vr
+    else:
+        w[nz,:][:,:np.sum(nz)] = wr
+        w[nz,:][:,np.sum(nz):] = 0
+        v[:,:np.sum(nz)] = vr
+        v[:,np.sum(nz):] = 0
+    
+    return (w,v)
 
 
 ###################################################
@@ -159,7 +188,7 @@ def bibiplot(X, Y, w, v,
         
 ###################################################
 # Permutation procedures to estimate dimensionality
-def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(9,3)):
+def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(7,2)):
 
     np.random.seed(seed)
 
@@ -179,7 +208,7 @@ def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(9,3)):
     plt.plot(np.arange(1, spectrum.size), spectra[:,:-1].T**2/np.sum(spectrum**2), 'k', linewidth=1)
     plt.plot(np.arange(1, spectrum.size), spectrum[:-1]**2/np.sum(spectrum**2), '.-')
     dimX = np.where(spectrum < np.percentile(spectra, 95, axis=0))[0][0]
-    plt.text(plt.xlim()[1]*.2, plt.ylim()[1]*.8, 'X dimensionality: ' + str(dimX), fontsize=10)
+    plt.text(plt.xlim()[1]*.2, plt.ylim()[1]*.8, 'X dimensionality: ' + str(dimX), fontsize=8)
 
     _,spectrum,_ = np.linalg.svd(Y, full_matrices=False)
     spectra = np.zeros((nrep, spectrum.size))
@@ -201,7 +230,7 @@ def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(9,3)):
         plt.plot(np.arange(1, spectrum.size), spectra[:,:-1].T**2/np.sum(spectrum**2), 'k', linewidth=1)
         plt.plot(np.arange(1, spectrum.size), spectrum[:-1]**2/np.sum(spectrum**2), '.-')
         dimY = np.where(spectrum < np.percentile(spectra, 95, axis=0))[0][0]
-        plt.text(plt.xlim()[1]*.2, plt.ylim()[1]*.8, 'Y dimensionality: ' + str(dimY), fontsize=10)
+        plt.text(plt.xlim()[1]*.2, plt.ylim()[1]*.8, 'Y dimensionality: ' + str(dimY), fontsize=8)
 
     Xz,_,_ = np.linalg.svd(X, full_matrices=False)
     Xz = Xz[:,:dimX]
@@ -220,8 +249,8 @@ def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(9,3)):
     p = min(dimX, Y.shape[1])
     plt.plot(np.arange(1, p+1), spectra[:,:p].T**2/np.sum(spectrum**2), 'k', linewidth=1)
     plt.plot(np.arange(1, p+1), spectrum[:p]**2/np.sum(spectrum**2), '.-')
-    dimRRR = np.where(spectrum < np.percentile(spectra, 95, axis=0))[0][0]
-    plt.text(plt.xlim()[1]*.2, plt.ylim()[1]*.8, 'RRR dimensionality: ' + str(dimRRR), fontsize=10)
+    dimRRR = np.where(spectrum > np.percentile(spectra, 95, axis=0))[0][-1]
+    plt.text(plt.xlim()[1]*.2, plt.ylim()[1]*.8, 'RRR dimensionality: ' + str(dimRRR), fontsize=8)
 
     plt.tight_layout()
 
@@ -231,11 +260,11 @@ def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(9,3)):
 def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.01, .1, 1]), 
                    reps=10, folds=10, rank=1, seed=42, sparsity='row-wise'):
     n = X.shape[0]
-    r2 = np.zeros((folds, reps, len(lambdas), len(alphas)))
-    r2_relaxed = np.zeros((folds, reps, len(lambdas), len(alphas)))
-    corrs = np.zeros((folds, reps, len(lambdas), len(alphas), rank))
-    corrs_relaxed = np.zeros((folds, reps, len(lambdas), len(alphas), rank))
-    nonzero = np.zeros((folds, reps, len(lambdas), len(alphas)))
+    r2 = np.zeros((folds, reps, len(lambdas), len(alphas))) * np.nan
+    r2_relaxed = np.zeros((folds, reps, len(lambdas), len(alphas))) * np.nan
+    corrs = np.zeros((folds, reps, len(lambdas), len(alphas), rank)) * np.nan
+    corrs_relaxed = np.zeros((folds, reps, len(lambdas), len(alphas), rank)) * np.nan
+    nonzero = np.zeros((folds, reps, len(lambdas), len(alphas))) * np.nan
 
     # CV repetitions
     np.random.seed(seed)
@@ -272,11 +301,9 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
                     
                     nz = np.sum(np.abs(vx), axis=1) != 0
                     if np.sum(nz) < rank:
-                        nonzero[cvfold, rep, i, j] = np.nan
                         continue
 
                     if np.allclose(np.std(Xtest @ vx, axis=0), 0):
-                        nonzero[cvfold, rep, i, j] = np.nan
                         continue
                     
                     nonzero[cvfold, rep, i, j] = np.sum(nz)
@@ -285,10 +312,17 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
                         corrs[cvfold, rep, i, j, r] = np.corrcoef(Xtest @ vx[:,r], Ytest @ vy[:,r], rowvar=False)[0,1]
                         
                     # Relaxation
-                    vx[nz,:],vy = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=a, alpha=0, rank=rank, sparsity=sparsity)
+                    vxr,vyr = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=a, alpha=0, rank=rank, sparsity=sparsity)
+                    if np.sum(nz)>=np.shape(vy)[1]:
+                        vx[nz,:] = vxr
+                        vy = vyr
+                    else:
+                        vx[nz,:][:,:np.sum(nz)] = vxr
+                        vx[nz,:][:,np.sum(nz):] = 0
+                        vy[:,:np.sum(nz)] = vyr
+                        vy[:,np.sum(nz):] = 0
 
                     if np.allclose(np.std(Xtest @ vx, axis=0), 0):
-                        nonzero[cvfold, rep, i, j] = np.nan
                         continue
 
                     r2_relaxed[cvfold, rep, i, j] = 1 - np.sum((Ytest - Xtest @ vx @ vy.T)**2) / np.sum(Ytest**2)
@@ -333,7 +367,6 @@ def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_r
         if corrs_relaxed.shape[4]>1:
             c2 = np.nanmean(corrs_relaxed, axis=(0,1))
 
-    sns.set()
     plt.figure(figsize=(9,4))
     plt.subplot(121)
     plt.plot(n, cr, '.-', linewidth=1)
