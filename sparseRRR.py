@@ -6,6 +6,8 @@ import pylab as plt
 import glmnet_python
 from glmnet import glmnet
 
+import rnaseqTools
+
 
 ###################################################
 # Elastic net reduced-rank regression
@@ -74,16 +76,21 @@ def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0,
     return (w, v)
 
 def relaxed_elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100,
-                        sparsity='row-wise'):
+                        sparsity='row-wise', lambdaRelaxed=None):
     w,v = elastic_rrr(X, Y, rank=rank, lambdau=lambdau, alpha=alpha, 
                       sparsity=sparsity, max_iter=max_iter)
 
     if alpha==0:   # pure ridge: no need to re-fit
         return (w,v)
 
-    nz = np.sum(np.abs(w), axis=1) != 0    
-    wr,vr = elastic_rrr(X[:,nz], Y, rank=rank, lambdau=lambdau, alpha=0,
+    nz = np.sum(np.abs(w), axis=1) != 0
+    if lambdaRelaxed:
+        wr,vr = elastic_rrr(X[:,nz], Y, rank=rank, lambdau=lambdaRelaxed, alpha=0,
                         sparsity=sparsity, max_iter=max_iter)
+    else:
+        wr,vr = elastic_rrr(X[:,nz], Y, rank=rank, lambdau=lambdau, alpha=0,
+                sparsity=sparsity, max_iter=max_iter)
+        
     if np.sum(nz)>=np.shape(w)[1]:
         w[nz,:] = wr
         v = vr
@@ -258,7 +265,7 @@ def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(7,2)):
 ###################################################
 # Cross-validation for elastic net reduced-rank regression
 def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.01, .1, 1]), 
-                   reps=10, folds=10, rank=1, seed=42, sparsity='row-wise'):
+                   reps=10, folds=10, rank=1, seed=42, sparsity='row-wise', lambdaRelaxed=None):
     n = X.shape[0]
     r2 = np.zeros((folds, reps, len(lambdas), len(alphas))) * np.nan
     r2_relaxed = np.zeros((folds, reps, len(lambdas), len(alphas))) * np.nan
@@ -312,7 +319,127 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
                         corrs[cvfold, rep, i, j, r] = np.corrcoef(Xtest @ vx[:,r], Ytest @ vy[:,r], rowvar=False)[0,1]
                         
                     # Relaxation
-                    vxr,vyr = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=a, alpha=0, rank=rank, sparsity=sparsity)
+                    if lambdaRelaxed:
+                        vxr,vyr = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=lambdaRelaxed, alpha=0, rank=rank, sparsity=sparsity)
+                    else:
+                        vxr,vyr = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=a, alpha=0, rank=rank, sparsity=sparsity)
+                    if np.sum(nz)>=np.shape(vy)[1]:
+                        vx[nz,:] = vxr
+                        vy = vyr
+                    else:
+                        vx[nz,:][:,:np.sum(nz)] = vxr
+                        vx[nz,:][:,np.sum(nz):] = 0
+                        vy[:,:np.sum(nz)] = vyr
+                        vy[:,np.sum(nz):] = 0
+
+                    if np.allclose(np.std(Xtest @ vx, axis=0), 0):
+                        continue
+
+                    r2_relaxed[cvfold, rep, i, j] = 1 - np.sum((Ytest - Xtest @ vx @ vy.T)**2) / np.sum(Ytest**2)
+                    for r in range(rank):
+                        corrs_relaxed[cvfold, rep, i, j, r] = np.corrcoef(Xtest @ vx[:,r], Ytest @ vy[:,r], rowvar=False)[0,1]
+                    
+        print(' ', end='')
+    
+    t = time.time() - t
+    m,s = divmod(t, 60)
+    h,m = divmod(m, 60)
+    print('Time: {}h {:2.0f}m {:2.0f}s'.format(h,m,s))
+    
+    return r2, r2_relaxed, nonzero, corrs, corrs_relaxed
+
+
+
+###################################################
+# Cross-validation for elastic net reduced-rank regression
+def elastic_rrr_cv_gene_selection(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.01, .1, 1]), 
+                   reps=10, folds=10, rank=1, seed=42, n_=1000, threshold_=32, sparsity='row-wise', lambdaRelaxed=None):
+    
+    # Like standard elastic_rrr_cv but now we use the heuristic to select genes for every training set for X
+    # that we consider. Variables that are important for this gene selection end with an underscore '_'
+    
+    n = X.shape[0]
+    r2 = np.zeros((folds, reps, len(lambdas), len(alphas)))
+    r2_relaxed = np.zeros((folds, reps, len(lambdas), len(alphas)))
+    corrs = np.zeros((folds, reps, len(lambdas), len(alphas), rank))
+    corrs_relaxed = np.zeros((folds, reps, len(lambdas), len(alphas), rank))
+    nonzero = np.zeros((folds, reps, len(lambdas), len(alphas)))
+
+    # CV repetitions
+    np.random.seed(seed)
+    t = time.time()
+    for rep in range(reps):
+        print(rep+1, end='')
+        ind = np.random.permutation(n)
+        X = X[ind,:]
+        Y = Y[ind,:]
+        
+        # CV folds
+        for cvfold in range(folds):
+            print('.', end='')
+
+            indtest  = np.arange(cvfold*int(n/folds), (cvfold+1)*int(n/folds))
+            indtrain = np.setdiff1d(np.arange(n), indtest)
+            Xtrain = np.copy(X[indtrain,:])
+            Ytrain = np.copy(Y[indtrain,:])
+            Xtest  = np.copy(X[indtest,:])
+            Ytest  = np.copy(Y[indtest,:])
+            
+            #print('Xtrain shape: ', Xtrain.shape)
+            # Now let's select genes based on the heuristic
+            selectedGenes = rnaseqTools.geneSelection(Xtrain, n=n_, threshold = threshold_, plot = False)
+            Xtrain = Xtrain[:, selectedGenes]
+            #print('std of Xtrain after geneSelection: \n', np.std(Xtrain, axis = 0))
+            Xtest = Xtest[:, selectedGenes]
+            #print('Xtrain shape: ', Xtrain.shape)
+            
+            # We should library normalise and standardise everything now (not sooner, i.e. not before geneSelection)
+            Xtrain = Xtrain / np.sum(Xtrain, axis=1, keepdims = True) * np.median(np.sum(Xtrain, axis = 1, keepdims = True))
+            Xtest = Xtest / np.sum(Xtest, axis=1, keepdims = True) * np.median(np.sum(Xtest, axis = 1, keepdims = True))
+            Xtrain = np.log2(Xtrain + 1)
+            Xtest = np.log2(Xtest + 1)
+            mu = np.mean(Xtrain, axis = 0)
+            Xtrain = Xtrain - mu
+            Xtest = Xtest - mu
+            ind = np.std(Xtrain, axis = 0) != 0 # Code that should delete constant value for all cells genes too
+            Xtrain = Xtrain[:, ind]
+            #print('Xtrain shape: ', Xtrain.shape)
+            Xtest = Xtest[:, ind]
+            std = np.std(Xtrain, axis = 0)
+            Xtrain = Xtrain / std
+            Xtest = Xtest / std
+            
+            # Should the following not have already been performed??
+            # mean centering
+            X_mean = np.mean(Xtrain, axis=0)
+            Xtrain -= X_mean
+            Xtest  -= X_mean
+            Y_mean = np.mean(Ytrain, axis=0)
+            Ytrain -= Y_mean
+            Ytest  -= Y_mean
+            
+            # loop over regularization parameters
+            for i,a in enumerate(lambdas):    
+                for j,b in enumerate(alphas):
+                    vx,vy = elastic_rrr(Xtrain, Ytrain, lambdau=a, alpha=b, rank=rank, sparsity=sparsity)
+                    
+                    nz = np.sum(np.abs(vx), axis=1) != 0
+                    if np.sum(nz) < rank:
+                        continue
+
+                    if np.allclose(np.std(Xtest @ vx, axis=0), 0):
+                        continue
+                    
+                    nonzero[cvfold, rep, i, j] = np.sum(nz)
+                    r2[cvfold, rep, i, j] = 1 - np.sum((Ytest - Xtest @ vx @ vy.T)**2) / np.sum(Ytest**2)
+                    for r in range(rank):
+                        corrs[cvfold, rep, i, j, r] = np.corrcoef(Xtest @ vx[:,r], Ytest @ vy[:,r], rowvar=False)[0,1]
+                        
+                    # Relaxation
+                    if lambdaRelaxed:
+                        vxr,vyr = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=lambdaRelaxed, alpha=0, rank=rank, sparsity=sparsity)
+                    else:
+                        vxr,vyr = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=a, alpha=0, rank=rank, sparsity=sparsity)
                     if np.sum(nz)>=np.shape(vy)[1]:
                         vx[nz,:] = vxr
                         vy = vyr
@@ -355,7 +482,7 @@ def elastic_rrr_bootstrap(X, Y, rank=1, lambdau = 1.5, alpha = .5, nrep = 100, s
 
 ####################################################
 # Plot CV results
-def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_relaxed=None, alphas=None):
+def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_relaxed=None, alphas=None, plot_var=False):
     
     # suppressing "mean of empty slice" warnings
     with warnings.catch_warnings():
@@ -366,12 +493,32 @@ def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_r
         c1 = np.nanmean(corrs_relaxed, axis=(0,1))[:,:,0]
         if corrs_relaxed.shape[4]>1:
             c2 = np.nanmean(corrs_relaxed, axis=(0,1))
+    
+    if plot_var:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            n_std = np.nanstd(nonzeros, axis=(0,1))
+            cr_std = np.nanstd(r2_relaxed, axis=(0,1))
+            c_std = np.nanstd(r2, axis=(0,1))
+            c1_std = np.nanstd(corrs_relaxed, axis=(0,1))[:,:,0]
+            if corrs_relaxed.shape[4]>1:
+                c2_std = np.nanstd(corrs_relaxed, axis=(0,1))
 
     plt.figure(figsize=(9,4))
     plt.subplot(121)
     plt.plot(n, cr, '.-', linewidth=1)
     plt.gca().set_prop_cycle(None)
+    if plot_var:
+        plt.plot(n, cr+cr_std, '.-', linewidth=1, alpha=.2, label=None)
+        plt.gca().set_prop_cycle(None)
+        plt.plot(n, cr-cr_std, '.-', linewidth=1, alpha=.2, label=None)
+    plt.gca().set_prop_cycle(None)
     plt.plot(n, c, '.--', linewidth=1, alpha=.5)
+    #plt.gca().set_prop_cycle(None)
+    #if plot_var:
+    #    plt.plot(n, c+c_std, '.-', linewidth=1, alpha=.2, label=None)
+    #    plt.gca().set_prop_cycle(None)
+    #    plt.plot(n, c-c_std, '.-', linewidth=1, alpha=.2, label=None)
     plt.xscale('log')
     plt.xlabel('Number of non-zero genes')
     plt.ylabel('Test R2')
