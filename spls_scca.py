@@ -39,7 +39,7 @@ def witten(X, Y=None, lx=0, ly=0, max_iter=100, verbose=0, tol=1e-6):
 
     return (u,v)
 
-def witten_cv(X, Y, reg_params, reps=10, folds=10, seed=42, ncomps=1):
+def witten_cv(X, Y, reg_params, reps=1, folds=10, seed=42, ncomps=1):
     n = X.shape[0]
     testcorrs = np.zeros((folds, reps, len(reg_params), ncomps))
     nonzero = np.zeros((folds, reps, len(reg_params), ncomps))
@@ -89,11 +89,16 @@ def witten_cv(X, Y, reg_params, reps=10, folds=10, seed=42, ncomps=1):
                     if (np.sum(vx!=0)==0) or (np.sum(vy!=0)==0):
                         nonzero[cvfold, rep, i, ncomp] = np.nan
                         continue
-                    testcorrs[cvfold, rep, i, ncomp] = np.corrcoef((Xtest @ vx).T, (Ytest @ vy).T)[0, 1]
+                    Xp = (Xtest @ vx).T
+                    Yp = (Ytest @ vy).T
+                    if np.isclose(np.std(Xp), 0) or np.isclose(np.std(Yp), 0):
+                        nonzero[cvfold, rep, i, ncomp] = np.nan
+                        continue
+                    testcorrs[cvfold, rep, i, ncomp] = np.corrcoef(Xp, Yp)[0, 1]
                     nonzero[cvfold, rep, i, ncomp] = np.sum(vx!=0)
 
     print(' done')
-    return np.squeeze(testcorrs), np.squeeze(nonzero)
+    return testcorrs, nonzero
 
 def witten_bootstrap(X, Y, lx=0, ly=0, nrep = 100, seed=42):
     np.random.seed(seed)
@@ -163,7 +168,7 @@ def suo(X, Y, lx=0, ly=0, max_iter=100, verbose=0, tol=1e-6):
 
     return (u[:,np.newaxis], v[:,np.newaxis])
 
-def suo_cv(X, Y, reg_params, reps=10, folds=10, seed=42):
+def suo_cv(X, Y, reg_params, reps=1, folds=10, seed=42):
     n = X.shape[0]
     testcorrs = np.zeros((folds, reps, len(reg_params)))
     nonzero = np.zeros((folds, reps, len(reg_params)))
@@ -200,8 +205,14 @@ def suo_cv(X, Y, reg_params, reps=10, folds=10, seed=42):
                 if (np.sum(vx!=0)==0) or (np.sum(vy!=0)==0):
                     nonzero[cvfold, rep, i] = np.nan
                     continue
-                    
-                testcorrs[cvfold, rep, i] = np.corrcoef((Xtest @ vx).T, (Ytest @ vy).T)[0,1]
+
+                Xp = (Xtest @ vx).T
+                Yp = (Ytest @ vy).T
+                if np.isclose(np.std(Xp), 0) or np.isclose(np.std(Yp), 0):
+                    nonzero[cvfold, rep, i] = np.nan
+                    continue
+
+                testcorrs[cvfold, rep, i] = np.corrcoef(Xp, Yp)[0, 1]
                 nonzero[cvfold, rep, i] = np.sum(vx!=0)
     
     print(' done')

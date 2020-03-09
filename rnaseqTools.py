@@ -30,7 +30,7 @@ def sparseload(filename, sep=',', dtype=float, chunksize=1000, index_col=0, drop
 def geneSelection(data, threshold=0, atleast=10, 
                   yoffset=.02, xoffset=5, decay=1.5, n=None, 
                   plot=True, markers=None, genes=None, figsize=(6,3.5),
-                  markeroffsets=None, labelsize=10, alpha=1):
+                  markeroffsets=None, labelsize=10, alpha=1, verbose=1):
     
     if sparse.issparse(data):
         zeroRate = 1 - np.squeeze(np.array((data>threshold).mean(axis=0)))
@@ -67,7 +67,8 @@ def geneSelection(data, threshold=0, atleast=10,
             else:
                 low = xoffset
                 xoffset = (xoffset + up)/2
-        print('Chosen offset: {:.2f}'.format(xoffset))
+        if verbose>0:
+            print('Chosen offset: {:.2f}'.format(xoffset))
     else:
         nonan = ~np.isnan(zeroRate)
         selected = np.zeros_like(zeroRate).astype(bool)

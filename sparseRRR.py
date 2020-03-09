@@ -108,9 +108,9 @@ def relaxed_elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100,
 def bibiplot(X, Y, w, v, 
              YdimsNames=np.array([]), YdimsToShow=None,
              XdimsNames=np.array([]), XdimsToShow=None, 
-             titles=[], xylim = 3,
+             titles=[], xylim = 3, s=10,
              cellTypes=np.array([]), cellTypeColors={}, cellTypeLabels={},
-             figsize=(9,4), axes=None):
+             figsize=(9,5), axes=None):
 
     if XdimsToShow is None:
         nz = np.sum(np.abs(w), axis=1) != 0
@@ -136,9 +136,9 @@ def bibiplot(X, Y, w, v,
     else:
         for u in np.unique(cellTypes):
             if not cellTypeLabels:
-                plt.scatter(Zx[cellTypes==u,0], Zx[cellTypes==u,1], color=cellTypeColors[u])
+                plt.scatter(Zx[cellTypes==u,0], Zx[cellTypes==u,1], color=cellTypeColors[u], s=s)
             else:
-                plt.scatter(Zx[cellTypes==u,0], Zx[cellTypes==u,1], color=cellTypeColors[u], label=cellTypeLabels[u])
+                plt.scatter(Zx[cellTypes==u,0], Zx[cellTypes==u,1], color=cellTypeColors[u], label=cellTypeLabels[u], s=s)
     plt.xlim([-xylim,xylim])
     plt.ylim([-xylim,xylim])
     plt.gca().set_xticklabels([])
@@ -168,10 +168,10 @@ def bibiplot(X, Y, w, v,
         plt.sca(axes[1])
         
     if cellTypes.size == 0:
-        plt.scatter(Zy[:,0], Zy[:,1])
+        plt.scatter(Zy[:,0], Zy[:,1], s=s)
     else:
         for u in np.unique(cellTypes):
-            plt.scatter(Zy[cellTypes==u,0], Zy[cellTypes==u,1], color=cellTypeColors[u])
+            plt.scatter(Zy[cellTypes==u,0], Zy[cellTypes==u,1], color=cellTypeColors[u], s=s)
     plt.xlim([-xylim,xylim])
     plt.ylim([-xylim,xylim])
     plt.gca().set_xticklabels([])
@@ -195,7 +195,7 @@ def bibiplot(X, Y, w, v,
         
 ###################################################
 # Permutation procedures to estimate dimensionality
-def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(7,2)):
+def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(9,3)):
 
     np.random.seed(seed)
 
@@ -265,7 +265,8 @@ def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(7,2)):
 ###################################################
 # Cross-validation for elastic net reduced-rank regression
 def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.01, .1, 1]), 
-                   reps=10, folds=10, rank=1, seed=42, sparsity='row-wise', lambdaRelaxed=None):
+                   reps=1, folds=10, rank=2, seed=42, sparsity='row-wise', lambdaRelaxed=None,
+                   preprocess=None):
     n = X.shape[0]
     r2 = np.zeros((folds, reps, len(lambdas), len(alphas))) * np.nan
     r2_relaxed = np.zeros((folds, reps, len(lambdas), len(alphas))) * np.nan
@@ -288,10 +289,13 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
 
             indtest  = np.arange(cvfold*int(n/folds), (cvfold+1)*int(n/folds))
             indtrain = np.setdiff1d(np.arange(n), indtest)
-            Xtrain = np.copy(X[indtrain,:])
-            Ytrain = np.copy(Y[indtrain,:])
-            Xtest  = np.copy(X[indtest,:])
-            Ytest  = np.copy(Y[indtest,:])
+            Xtrain = X[indtrain,:].copy()
+            Ytrain = Y[indtrain,:].copy()
+            Xtest  = X[indtest,:].copy()
+            Ytest  = Y[indtest,:].copy()
+
+            if preprocess:
+                Xtrain, Xtest = preprocess(Xtrain, Xtest)
             
             # mean centering
             X_mean = np.mean(Xtrain, axis=0)
@@ -353,7 +357,7 @@ def elastic_rrr_cv(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.0
 ###################################################
 # Cross-validation for elastic net reduced-rank regression
 def elastic_rrr_cv_gene_selection(X, Y, alphas = np.array([.2, .5, .9]), lambdas = np.array([.01, .1, 1]), 
-                   reps=10, folds=10, rank=1, seed=42, n_=1000, threshold_=32, sparsity='row-wise', lambdaRelaxed=None):
+                   reps=1, folds=10, rank=2, seed=42, n_=1000, threshold_=32, sparsity='row-wise', lambdaRelaxed=None):
     
     # Like standard elastic_rrr_cv but now we use the heuristic to select genes for every training set for X
     # that we consider. Variables that are important for this gene selection end with an underscore '_'
@@ -468,7 +472,7 @@ def elastic_rrr_cv_gene_selection(X, Y, alphas = np.array([.2, .5, .9]), lambdas
 
 ###################################################
 # Bootstrap selection for elastic net reduced-rank regression
-def elastic_rrr_bootstrap(X, Y, rank=1, lambdau = 1.5, alpha = .5, nrep = 100, seed=42):
+def elastic_rrr_bootstrap(X, Y, rank=2, lambdau = 1.5, alpha = .5, nrep = 100, seed=42):
     np.random.seed(seed)
     ww = np.zeros((X.shape[1], nrep))
     for rep in range(nrep):
