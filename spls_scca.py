@@ -96,7 +96,16 @@ def witten_cv(X, Y, reg_params, reps=1, folds=10, seed=42, ncomps=1):
                         continue
                     testcorrs[cvfold, rep, i, ncomp] = np.corrcoef(Xp, Yp)[0, 1]
                     nonzero[cvfold, rep, i, ncomp] = np.sum(vx!=0)
-
+    
+    # if 1st comp received a Nan, the 2nd should also receive a Nan (currently it's still 0)
+    nonzero[np.isnan(nonzero[:,:,:,0]),1]=np.nan
+    
+    # if 1st comp received a Nan, the corr there should be Nan (currently it's still 0)
+    testcorrs[np.isnan(nonzero[:,:,:,0]),0]=np.nan
+    
+    # if the 2nd comp received a Nan, the corr there should be Nan (currently it's still 0)
+    testcorrs[np.isnan(nonzero[:,:,:,1]),1]=np.nan
+    
     print(' done')
     return testcorrs, nonzero
 
@@ -214,6 +223,98 @@ def suo_cv(X, Y, reg_params, reps=1, folds=10, seed=42):
 
                 testcorrs[cvfold, rep, i] = np.corrcoef(Xp, Yp)[0, 1]
                 nonzero[cvfold, rep, i] = np.sum(vx!=0)
+    
+    print(' done')
+    return testcorrs, nonzero
+
+def witten_cv_sanity_check(X, Y, reg_params, genes = None, reps=1, folds=10, seed=42, ncomps=1, keep_comp1_param_cte=False):
+    n = X.shape[0]
+    testcorrs = np.zeros((folds, reps, len(reg_params), ncomps))
+    nonzero = np.zeros((folds, reps, len(reg_params), ncomps))
+
+    # CV repetitions
+    np.random.seed(seed)
+    for rep in range(reps):
+        print('.', end='')
+        ind = np.random.permutation(n)
+        X = X[ind,:]
+        Y = Y[ind,:]
+        
+        # CV folds
+        for cvfold in range(folds):
+            indtest  = np.arange(cvfold*int(n/folds), (cvfold+1)*int(n/folds))
+            indtrain = np.setdiff1d(np.arange(n), indtest)
+            Xtrain = np.copy(X[indtrain,:])
+            Ytrain = np.copy(Y[indtrain,:])
+            Xtest  = np.copy(X[indtest,:])
+            Ytest  = np.copy(Y[indtest,:])
+            
+            # mean centering
+            X_mean = np.mean(Xtrain, axis=0)
+            Xtrain -= X_mean
+            Xtest  -= X_mean
+            Y_mean = np.mean(Ytrain, axis=0)
+            Ytrain -= Y_mean
+            Ytest  -= Y_mean
+
+            # loop over regularization parameters
+            for i,r in enumerate(reg_params):    
+                vx,vy = witten(Xtrain, Ytrain, lx=r)
+                
+                if (np.sum(vx!=0)==0) or (np.sum(vy!=0)==0):
+                    nonzero[cvfold, rep, i, 0] = np.nan
+                    continue
+                
+                testcorrs[cvfold, rep, i, 0] = np.corrcoef((Xtest @ vx).T, (Ytest @ vy).T)[0,1]
+                nonzero[cvfold, rep, i, 0] = np.sum(vx!=0)
+                
+                if keep_comp1_param_cte:
+                    vx,vy = witten(Xtrain, Ytrain, lx=reg_params[0])
+                
+                    if (np.sum(vx!=0)==0) or (np.sum(vy!=0)==0):
+                        nonzero[cvfold, rep, i, 0] = np.nan
+                        continue
+                    testcorrs[cvfold, rep, i, 0] = np.corrcoef((Xtest @ vx).T, (Ytest @ vy).T)[0,1]
+                    nonzero[cvfold, rep, i, 0] = np.sum(vx!=0)
+                if genes is not None:
+                    if cvfold==0:
+                        print('1st component: ')
+                        print('corr coeff: ', np.corrcoef((Xtest @ vx).T, (Ytest @ vy).T)[0, 1])
+                        print('# genes selected: ', np.sum(vx!=0))
+                        print('reg param={} , genes selected: '.format(r), genes[vx[:,0]!=0])
+                # loop over components (deflating)
+                A = Xtrain.T @ Ytrain
+                for ncomp in range(1, ncomps):
+                    d = vx.T @ A @ vy
+                    A = A - d * vx @ vy.T
+                    vx, vy = witten(A, lx = r)
+                    if (np.sum(vx!=0)==0) or (np.sum(vy!=0)==0):
+                        nonzero[cvfold, rep, i, ncomp] = np.nan
+                        continue
+                    Xp = (Xtest @ vx).T
+                    Yp = (Ytest @ vy).T
+                    if np.isclose(np.std(Xp), 0) or np.isclose(np.std(Yp), 0):
+                        nonzero[cvfold, rep, i, ncomp] = np.nan
+                        continue
+                    testcorrs[cvfold, rep, i, ncomp] = np.corrcoef(Xp, Yp)[0, 1]
+                    nonzero[cvfold, rep, i, ncomp] = np.sum(vx!=0)
+                    
+#                     if genes is not None:
+#                         if cvfold==0:
+#                             print('\n2nd component: ')
+#                             print('corr coeff: ', np.corrcoef(Xp, Yp)[0, 1])
+#                             print('# genes selected: ', np.sum(vx!=0))
+#                             print('reg param={} , genes selected: '.format(r), genes[vx[:,0]!=0])
+                            
+    
+    # if 1st comp received a Nan, the 2nd should also receive a Nan (currently it's still 0)
+    nonzero[np.isnan(nonzero[:,:,:,0]),1]=np.nan
+    
+    # if 1st comp received a Nan, the corr there should be Nan (currently it's still 0)
+    testcorrs[np.isnan(nonzero[:,:,:,0]),0]=np.nan
+    
+    # if the 2nd comp received a Nan, the corr there should be Nan (currently it's still 0)
+    testcorrs[np.isnan(nonzero[:,:,:,1]),1]=np.nan
     
     print(' done')
     return testcorrs, nonzero

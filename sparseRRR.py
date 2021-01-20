@@ -12,7 +12,7 @@ import rnaseqTools
 ###################################################
 # Elastic net reduced-rank regression
 
-def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100, verbose=0,
+def elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter=100, verbose=0,
                 sparsity='row-wise'):
 
     # in the pure ridge case, analytic solution is available:
