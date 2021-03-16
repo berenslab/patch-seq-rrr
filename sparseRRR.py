@@ -424,3 +424,49 @@ def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_r
     plt.legend(['$\\alpha='+str(a)+'$' for a in alphas])
     plt.tight_layout()
 
+
+####################################################
+# Nested CV
+def nested_cv(X, Y, lambdas, alphas, rank=2, nfolds=10, n_inner_folds=10,
+             target_n_genes=20):
+
+    n = np.floor(X.shape[0]/nfolds).astype(int)
+    r2s = np.zeros(nfolds)
+
+    for fold in range(nfolds):
+        ind_test = np.arange(fold*n, (fold+1)*n)
+        ind_train = np.setdiff1d(np.arange(nfolds*n), ind_test)
+    
+        Xtrain = X[ind_train,:].copy()
+        Ytrain = Y[ind_train,:].copy()
+        Xtest  = X[ind_test,:].copy()
+        Ytest  = Y[ind_test,:].copy()
+    
+        X_mean = np.mean(Xtrain, axis=0)
+        Xtrain -= X_mean
+        Xtest  -= X_mean
+        Y_mean = np.mean(Ytrain, axis=0)
+        Ytrain -= Y_mean
+        Ytest  -= Y_mean        
+
+        cvresults = elastic_rrr_cv(X[ind_train], Y[ind_train], rank=rank, 
+                                             reps=1, folds=n_inner_folds, 
+                                             alphas=alphas, lambdas=lambdas)
+    
+        r2, r2_relaxed, nonzero, corrs, corrs_relaxed = cvresults
+        lambd = np.nanargmin(np.abs(np.mean(nonzero, axis=0).squeeze() - target_n_genes), axis=0)
+        bestalpha = np.argmax(np.mean(r2_relaxed,axis=0).squeeze()[lambd, np.arange(alphas.size)])
+    
+        vx,vy = relaxed_elastic_rrr(X[ind_train], Y[ind_train], rank=2, 
+                      alpha=alphas[bestalpha], lambdau=lambdas[lambd[bestalpha]])
+    
+        r2 = 1 - np.sum((Y[ind_test] - X[ind_test] @ vx @ vy.T)**2) / np.sum(Y[ind_test]**2)
+        r2s[fold] = r2
+
+        print(f'Optimal alpha: {alphas[bestalpha]}, '
+              f'lambda to get {target_n_genes} genes: {lambdas[lambd[bestalpha]]:.1f}, '
+              f'test R2 = {r2:.2f}')
+    
+    print(f'\nAverage test R2: {np.mean(r2s):.2f}\n')
+    return r2s
+
