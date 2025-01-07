@@ -35,7 +35,7 @@ def elastic_rrr(X, Y, rank=2, alpha=1, l1_ratio=0.5, max_iter=100, verbose=0,
     
     for iter in range(max_iter):
         if rank == 1:
-            w = elastic_net.fit(X.copy(), (Y @ v).copy()).coef_
+            w = elastic_net.fit(X.copy(), (Y @ v).copy()).coef_[:,np.newaxis]
         else: 
             if sparsity=='row-wise':
                 w = elastic_net.fit(X.copy(), (Y @ v).copy()).coef_.T
