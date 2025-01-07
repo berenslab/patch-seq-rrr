@@ -2,7 +2,8 @@ import numpy as np
 import time
 import warnings
 import pylab as plt
-from sklearn.linear_model import ElasticNet
+from sklearn.linear_model import MultiTaskElasticNet
+
 
 ###################################################
 # Elastic net reduced-rank regression
@@ -25,7 +26,7 @@ def elastic_rrr(X, Y, rank=2, alpha=1, l1_ratio=0.5, max_iter=100, verbose=0,
 
          return (w,v)
 
-    elastic_net = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, fit_intercept=False, max_iter=max_iter)
+    elastic_net = MultiTaskElasticNet(alpha=alpha, l1_ratio=l1_ratio, fit_intercept=False, max_iter=max_iter)
 
     # initialize with PLS direction
     _,_,v = np.linalg.svd(X.T @ Y, full_matrices=False)
@@ -35,7 +36,7 @@ def elastic_rrr(X, Y, rank=2, alpha=1, l1_ratio=0.5, max_iter=100, verbose=0,
     
     for iter in range(max_iter):
         if rank == 1:
-            w = elastic_net.fit(X.copy(), (Y @ v).copy()).coef_[:,np.newaxis]
+            w = elastic_net.fit(X.copy(), (Y @ v).copy()).coef_[:, np.newaxis]
         else: 
             if sparsity=='row-wise':
                 w = elastic_net.fit(X.copy(), (Y @ v).copy()).coef_.T
@@ -68,20 +69,20 @@ def elastic_rrr(X, Y, rank=2, alpha=1, l1_ratio=0.5, max_iter=100, verbose=0,
     
     return (w, v)
 
-def relaxed_elastic_rrr(X, Y, rank=2, lambdau=1, alpha=0.5, max_iter = 100,
-                        sparsity='row-wise', lambdaRelaxed=None):
-    w,v = elastic_rrr(X, Y, rank=rank, lambdau=lambdau, alpha=alpha, 
+def relaxed_elastic_rrr(X, Y, rank=2, alpha=1, l1_ratio=0.5, max_iter = 100,
+                        sparsity='row-wise', alphaRelaxed=None):
+    w,v = elastic_rrr(X, Y, rank=rank, alpha=alpha, l1_ratio=l1_ratio, 
                       sparsity=sparsity, max_iter=max_iter)
 
-    if alpha==0:   # pure ridge: no need to re-fit
+    if l1_ratio==0:   # pure ridge: no need to re-fit
         return (w,v)
 
     nz = np.sum(np.abs(w), axis=1) != 0
-    if lambdaRelaxed:
-        wr,vr = elastic_rrr(X[:,nz], Y, rank=rank, lambdau=lambdaRelaxed, alpha=0,
+    if alphaRelaxed:
+        wr,vr = elastic_rrr(X[:,nz], Y, rank=rank, alpha=alphaRelaxed, l1_ratio=0,
                         sparsity=sparsity, max_iter=max_iter)
     else:
-        wr,vr = elastic_rrr(X[:,nz], Y, rank=rank, lambdau=lambdau, alpha=0,
+        wr,vr = elastic_rrr(X[:,nz], Y, rank=rank, alpha=alpha, l1_ratio=0,
                 sparsity=sparsity, max_iter=max_iter)
         
     if np.sum(nz)>=np.shape(w)[1]:
@@ -125,7 +126,7 @@ def bibiplot(X, Y, w, v,
         plt.sca(axes[0])
     
     if cellTypes.size == 0:
-        plt.scatter(Zx[:,0], Zx[:,1])
+        plt.scatter(Zx[:,0], Zx[:,1],c=range(X.shape[0]), cmap='viridis', s=s)
     else:
         for u in np.unique(cellTypes):
             if not cellTypeLabels:
@@ -161,7 +162,7 @@ def bibiplot(X, Y, w, v,
         plt.sca(axes[1])
         
     if cellTypes.size == 0:
-        plt.scatter(Zy[:,0], Zy[:,1], s=s)
+        plt.scatter(Zy[:,0], Zy[:,1], c=range(X.shape[0]), cmap='viridis', s=s)
     else:
         for u in np.unique(cellTypes):
             plt.scatter(Zy[cellTypes==u,0], Zy[cellTypes==u,1], color=cellTypeColors[u], s=s)
@@ -258,7 +259,7 @@ def dimensionality(X, Y, nrep = 100, seed = 42, axes=None, figsize=(9,3)):
 ###################################################
 # Cross-validation for elastic net reduced-rank regression
 def elastic_rrr_cv(X, Y, l1_ratios = np.array([.2, .5, .9]), alphas = np.array([.01, .1, 1]), 
-                   reps=1, folds=10, rank=2, seed=42, sparsity='row-wise', lambdaRelaxed=None,
+                   reps=1, folds=10, rank=2, seed=42, sparsity='row-wise', alphaRelaxed=None,
                    preprocess=None):
     n = X.shape[0]
     r2 = np.zeros((folds, reps, len(alphas), len(l1_ratios))) * np.nan
@@ -316,8 +317,8 @@ def elastic_rrr_cv(X, Y, l1_ratios = np.array([.2, .5, .9]), alphas = np.array([
                         corrs[cvfold, rep, i, j, r] = np.corrcoef(Xtest @ vx[:,r], Ytest @ vy[:,r], rowvar=False)[0,1]
                         
                     # Relaxation
-                    if lambdaRelaxed:
-                        vxr,vyr = elastic_rrr(Xtrain[:,nz], Ytrain, lambdau=lambdaRelaxed, l1_ratio=0, rank=rank, sparsity=sparsity)
+                    if alphaRelaxed:
+                        vxr,vyr = elastic_rrr(Xtrain[:,nz], Ytrain, alpha=alphaRelaxed, l1_ratio=0, rank=rank, sparsity=sparsity)
                     else:
                         vxr,vyr = elastic_rrr(Xtrain[:,nz], Ytrain, alpha=a, l1_ratio=0, rank=rank, sparsity=sparsity)
                     if np.sum(nz)>=np.shape(vy)[1]:
@@ -422,8 +423,8 @@ def plot_cv_results(r2=None, r2_relaxed=None, nonzeros=None, corrs=None, corrs_r
 
 ####################################################
 # Nested CV
-def nested_cv(X, Y, lambdas, alphas, rank=2, nfolds=10, n_inner_folds=10,
-             target_n_genes=20):
+def nested_cv(X, Y, alphas, l1_ratios, rank=2, nfolds=10, n_inner_folds=10,
+             target_n_predictors=20):
 
     n = np.floor(X.shape[0]/nfolds).astype(int)
     r2s = np.zeros(nfolds)
@@ -446,22 +447,21 @@ def nested_cv(X, Y, lambdas, alphas, rank=2, nfolds=10, n_inner_folds=10,
 
         cvresults = elastic_rrr_cv(X[ind_train], Y[ind_train], rank=rank, 
                                              reps=1, folds=n_inner_folds, 
-                                             alphas=alphas, lambdas=lambdas)
+                                             alphas=alphas, l1_ratios=l1_ratios)
     
         r2, r2_relaxed, nonzero, corrs, corrs_relaxed = cvresults
-        lambd = np.nanargmin(np.abs(np.mean(nonzero, axis=0).squeeze() - target_n_genes), axis=0)
-        bestalpha = np.argmax(np.mean(r2_relaxed,axis=0).squeeze()[lambd, np.arange(alphas.size)])
+        alphad = np.nanargmin(np.abs(np.mean(nonzero, axis=0).squeeze() - target_n_predictors), axis=0)
+        bestl1ratio = np.argmax(np.mean(r2_relaxed,axis=0).squeeze()[alphad, np.arange(l1_ratios.size)])
     
         vx,vy = relaxed_elastic_rrr(X[ind_train], Y[ind_train], rank=2, 
-                      alpha=alphas[bestalpha], lambdau=lambdas[lambd[bestalpha]])
+                      l1_ratio=l1_ratios[bestl1ratio], alpha=alphas[alphad[bestl1ratio]])
     
         r2 = 1 - np.sum((Y[ind_test] - X[ind_test] @ vx @ vy.T)**2) / np.sum(Y[ind_test]**2)
         r2s[fold] = r2
 
-        print(f'Optimal alpha: {alphas[bestalpha]}, '
-              f'lambda to get {target_n_genes} genes: {lambdas[lambd[bestalpha]]:.1f}, '
+        print(f'Optimal l1 ratio: {l1_ratios[bestl1ratio]}, '
+              f'alpha to get {target_n_predictors} predictors: {alphas[alphad[bestl1ratio]]:.1f}, '
               f'test R2 = {r2:.2f}')
     
     print(f'\nAverage test R2: {np.mean(r2s):.2f}\n')
     return r2s
-
